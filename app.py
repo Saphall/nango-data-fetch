@@ -287,6 +287,19 @@ def colorize_value(val):
 
 
 def render_record_card(rec: dict, index: int) -> str:
+    def _subtitle_part(value):
+        if value in (None, ""):
+            return ""
+        if isinstance(value, dict):
+            for key in ("name", "title", "displayName", "value", "id"):
+                candidate = value.get(key)
+                if candidate not in (None, ""):
+                    return str(candidate)
+            return json.dumps(value, ensure_ascii=True)
+        if isinstance(value, list):
+            return ", ".join(str(item) for item in value if item not in (None, ""))
+        return str(value)
+
     first  = rec.get("legalFirstName", "")
     last   = rec.get("legalLastName", "")
     pref   = rec.get("preferredName", "")
@@ -294,7 +307,8 @@ def render_record_card(rec: dict, index: int) -> str:
     emp_id = rec.get("employeeId", rec.get("id", rec.get("_nango_id", f"#{index+1}")))
     job    = rec.get("jobTitle", rec.get("positionTitle", ""))
     dept   = rec.get("department", rec.get("organizationName", ""))
-    subtitle = " · ".join(x for x in [job, dept] if x) or "StandardEmployee"
+    subtitle_parts = [_subtitle_part(job), _subtitle_part(dept)]
+    subtitle = " · ".join(x for x in subtitle_parts if x) or "StandardEmployee"
 
     SKIP = {"legalFirstName","legalLastName","preferredName","fullName","jobTitle","positionTitle"}
     scalar_html = ""
