@@ -16,6 +16,10 @@ streamlit run app.py
 
 Then open <http://localhost:8501> in your browser.
 
+
+![Nango API Explorer Demo](./assets/demo.png)
+
+
 ## Features
 
 - **Sidebar config** — Base URL, Model, Bearer token (masked), Provider-Config-Key, Connection-Id
