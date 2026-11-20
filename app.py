@@ -1,8 +1,20 @@
 import streamlit as st
+import truststore
 import requests
+import html
 import json
+import os
+import re
 import time
 from datetime import datetime
+from pathlib import Path
+from urllib.parse import urlencode, urlparse
+
+import pandas as pd
+from dotenv import dotenv_values, set_key, unset_key
+
+# Use the OS trust store (as curl does) so internal/corporate CAs are accepted
+truststore.inject_into_ssl()
 
 # ── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -13,263 +25,119 @@ st.set_page_config(
 )
 
 # ── Custom CSS ────────────────────────────────────────────────────────────────
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Syne:wght@400;600;800&display=swap');
-
-/* ── Global dark background with grid ── */
-html, body, [class*="css"], .stApp {
-    font-family: 'Syne', sans-serif;
-    background-color: #0a0c10 !important;
-}
-.stApp {
-    background-image:
-        linear-gradient(rgba(42,92,255,0.04) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(42,92,255,0.04) 1px, transparent 1px) !important;
-    background-size: 40px 40px !important;
-    background-attachment: fixed !important;
-}
-.main .block-container {
-    padding-top: 2rem;
-    padding-bottom: 4rem;
-    background: transparent !important;
-}
-[data-testid="stVerticalBlock"],
-[data-testid="stHorizontalBlock"],
-[data-testid="column"],
-section.main > div {
-    background: transparent !important;
+STYLES = (Path(__file__).parent / "styles.css").read_text()
+THEMES = {
+    "dark": {
+        "bg": "#070a12", "blob-1": "rgba(42,92,255,.35)", "blob-2": "rgba(0,217,126,.18)", "blob-3": "rgba(150,80,255,.25)",
+        "glass": "rgba(255,255,255,.055)", "glass-strong": "rgba(255,255,255,.085)", "highlight": "rgba(255,255,255,.10)",
+        "border": "rgba(255,255,255,.12)", "text": "#e8ecf4", "muted": "#9aa3b8", "dim": "#6b7488",
+        "accent": "#6b8cff", "accent-2": "#00d97e", "accent-soft": "rgba(77,124,255,.28)", "danger": "#ff5c77",
+        "c-kw": "#ffa657", "input-bg": "rgba(255,255,255,.06)", "chip-bg": "rgba(255,255,255,.05)",
+        "code-bg": "rgba(0,0,0,.32)", "sidebar-bg": "rgba(8,11,20,.62)", "pop-bg": "#131a2b",
+        "shadow": "0 8px 32px rgba(0,0,0,.40)", "invert": "none",
+    },
+    "light": {
+        "bg": "#e9eefb", "blob-1": "rgba(77,124,255,.45)", "blob-2": "rgba(0,200,140,.30)", "blob-3": "rgba(190,120,255,.35)",
+        "glass": "rgba(255,255,255,.55)", "glass-strong": "rgba(255,255,255,.78)", "highlight": "rgba(255,255,255,.9)",
+        "border": "rgba(30,45,90,.12)", "text": "#141a2b", "muted": "#4b556b", "dim": "#7b859b",
+        "accent": "#2a5cff", "accent-2": "#00a566", "accent-soft": "rgba(42,92,255,.20)", "danger": "#e0344f",
+        "c-kw": "#c25e00", "input-bg": "rgba(255,255,255,.75)", "chip-bg": "rgba(255,255,255,.65)",
+        "code-bg": "rgba(255,255,255,.65)", "sidebar-bg": "rgba(245,248,255,.65)", "pop-bg": "#ffffff",
+        "shadow": "0 8px 32px rgba(31,45,90,.14)", "invert": "invert(1) hue-rotate(180deg)",
+    },
 }
 
-/* ── Sidebar ── */
-section[data-testid="stSidebar"] {
-    background: #0d1117 !important;
-    border-right: 1px solid #1e2530 !important;
-}
-section[data-testid="stSidebar"] > div { background: #0d1117 !important; }
-section[data-testid="stSidebar"] * { color: #c9d1d9; }
-section[data-testid="stSidebar"] .stTextInput input {
-    background: #111318 !important;
-    border: 1px solid #22262f !important;
-    border-radius: 8px !important;
-    font-family: 'JetBrains Mono', monospace !important;
-    font-size: 12px !important;
-    color: #e8ecf4 !important;
-}
-section[data-testid="stSidebar"] .stTextInput input:focus {
-    border-color: #2a5cff !important;
-    box-shadow: 0 0 0 3px rgba(42,92,255,0.15) !important;
-}
-section[data-testid="stSidebar"] label {
-    color: #6b7280 !important;
-    font-family: 'JetBrains Mono', monospace !important;
-    font-size: 11px !important;
-}
 
-/* ── Main text inputs ── */
-.stTextInput input {
-    background: #111318 !important;
-    border: 1px solid #22262f !important;
-    border-radius: 8px !important;
-    font-family: 'JetBrains Mono', monospace !important;
-    font-size: 12px !important;
-    color: #e8ecf4 !important;
-}
-.stTextInput input:focus {
-    border-color: #2a5cff !important;
-    box-shadow: 0 0 0 3px rgba(42,92,255,0.15) !important;
-}
-.stTextInput label {
-    color: #6b7280 !important;
-    font-family: 'JetBrains Mono', monospace !important;
-    font-size: 10px !important;
-    letter-spacing: 1px !important;
-    text-transform: uppercase !important;
-}
+def apply_theme(mode):
+    variables = "".join(f"--{k}:{v};" for k, v in THEMES[mode].items())
+    st.markdown(f"<style>{STYLES}\n:root{{{variables}}}</style>", unsafe_allow_html=True)
 
-/* ── Hero ── */
-.hero {
-    background: linear-gradient(135deg, #0d1117 0%, #111318 100%);
-    border: 1px solid #22262f;
-    border-radius: 14px;
-    padding: 26px 30px;
-    margin-bottom: 22px;
-    position: relative;
-    overflow: hidden;
-}
-.hero::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0; right: 0; height: 2px;
-    background: linear-gradient(90deg, transparent, #2a5cff, #00d97e, transparent);
-}
-.hero-row { display:flex; align-items:center; gap:14px; }
-.hero-logo {
-    width:44px; height:44px; background:#2a5cff; border-radius:10px;
-    display:flex; align-items:center; justify-content:center;
-    font-family:'JetBrains Mono',monospace; font-size:18px; font-weight:700; color:white;
-    box-shadow:0 0 24px rgba(42,92,255,0.5); flex-shrink:0;
-}
-.hero-title { font-family:'Syne',sans-serif; font-size:24px; font-weight:800; color:#e8ecf4; letter-spacing:-0.5px; margin:0; }
-.hero-sub   { font-family:'JetBrains Mono',monospace; font-size:11px; color:#4d7cff; margin-top:3px; letter-spacing:1px; }
-.hero-dot   { margin-left:auto; display:flex; align-items:center; gap:8px; font-family:'JetBrains Mono',monospace; font-size:11px; color:#6b7280; }
-.live-dot   { width:8px; height:8px; border-radius:50%; background:#00d97e; box-shadow:0 0 8px #00d97e; animation:blink 2s infinite; }
-@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
 
-/* ── Panels ── */
-.panel-card, .curl-panel {
-    background: #111318;
-    border: 1px solid #22262f;
-    border-radius: 14px;
-    padding: 22px 24px;
-    position: relative;
-    overflow: hidden;
-    height: 100%;
-}
-.panel-card::before {
-    content: ''; position:absolute; top:0; left:0; right:0; height:1px;
-    background: linear-gradient(90deg, transparent, rgba(42,92,255,0.5), transparent);
-}
-.curl-panel::before {
-    content: ''; position:absolute; top:0; left:0; right:0; height:1px;
-    background: linear-gradient(90deg, transparent, rgba(0,217,126,0.4), transparent);
-}
-.panel-label {
-    font-family:'JetBrains Mono',monospace; font-size:10px; color:#4d7cff;
-    letter-spacing:2px; text-transform:uppercase; margin-bottom:14px;
-    display:flex; align-items:center; gap:8px;
-}
-.panel-label::after { content:''; flex:1; height:1px; background:#22262f; }
-.curl-header {
-    font-family:'JetBrains Mono',monospace; font-size:10px; color:#00d97e;
-    letter-spacing:2px; text-transform:uppercase; margin-bottom:14px;
-    display:flex; align-items:center; gap:8px;
-}
-.curl-header::after { content:''; flex:1; height:1px; background:#22262f; }
-
-/* ── cURL box ── */
-.curl-box {
-    background: #0a0c10;
-    border: 1px solid #22262f;
-    border-radius: 10px;
-    padding: 18px 20px;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 13px;
-    line-height: 2;
-    color: #8b949e;
-    white-space: pre;
-    overflow-x: auto;
-}
-.curl-box .kw   { color:#ffa657; }
-.curl-box .flag { color:#00d97e; }
-.curl-box .url  { color:#4d7cff; }
-.curl-box .val  { color:#e8ecf4; }
-
-/* ── Button ── */
-.stButton > button {
-    background: #2a5cff !important; color: white !important;
-    border: none !important; border-radius: 8px !important;
-    font-family: 'JetBrains Mono', monospace !important;
-    font-weight: 600 !important; font-size: 13px !important;
-    letter-spacing: 0.5px !important; padding: 10px 28px !important;
-    width: 100%; box-shadow: 0 0 20px rgba(42,92,255,0.3) !important;
-}
-.stButton > button:hover {
-    background: #4d7cff !important;
-    box-shadow: 0 0 32px rgba(42,92,255,0.5) !important;
-}
-
-/* ── Badges ── */
-.badge { display:inline-block; padding:3px 12px; border-radius:20px; font-family:'JetBrains Mono',monospace; font-size:12px; font-weight:600; }
-.badge-ok  { background:#00d97e18; color:#00d97e; border:1px solid #00d97e55; }
-.badge-err { background:#ff4d6a18; color:#ff4d6a; border:1px solid #ff4d6a55; }
-
-/* ── Metrics ── */
-.metric-row { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
-.metric-box { background:#111318; border:1px solid #22262f; border-radius:8px; padding:10px 18px; font-family:'JetBrains Mono',monospace; }
-.metric-title { font-size:10px; color:#484f58; text-transform:uppercase; letter-spacing:1px; }
-.metric-val   { font-size:18px; font-weight:700; color:#e8ecf4; margin-top:2px; }
-.url-bar { font-family:'JetBrains Mono',monospace; font-size:11px; color:#484f58; background:#0a0c10; border:1px solid #22262f; border-radius:8px; padding:10px 14px; margin-bottom:16px; }
-
-/* ── Tabs ── */
-.stTabs [data-baseweb="tab-list"] {
-    background:#0a0c10 !important; border-radius:10px 10px 0 0;
-    gap:4px; padding:6px 6px 0; border-bottom:1px solid #22262f;
-}
-.stTabs [data-baseweb="tab"] {
-    background:transparent !important; border-radius:7px 7px 0 0 !important;
-    font-family:'JetBrains Mono',monospace !important; font-size:12px !important;
-    color:#484f58 !important; border-bottom:2px solid transparent !important;
-}
-.stTabs [aria-selected="true"] {
-    background:#111318 !important; color:#e8ecf4 !important;
-    border-bottom:2px solid #2a5cff !important;
-}
-.stTabs [data-baseweb="tab-panel"] {
-    background:#111318 !important; border:1px solid #22262f;
-    border-top:none; border-radius:0 0 10px 10px; padding:20px !important;
-}
-
-/* ── Record cards ── */
-.record-card {
-    background:#111318; border:1px solid #22262f; border-radius:12px;
-    padding:20px 22px 20px 26px; margin-bottom:14px; position:relative; overflow:hidden;
-}
-.record-card::before {
-    content:''; position:absolute; left:0; top:0; bottom:0; width:3px;
-    background:linear-gradient(180deg,#2a5cff,#00d97e); border-radius:3px 0 0 3px;
-}
-.record-name { font-family:'Syne',sans-serif; font-size:17px; font-weight:700; color:#e8ecf4; }
-.record-meta { font-family:'JetBrains Mono',monospace; font-size:11px; color:#4d7cff; margin-top:2px; }
-.record-id-badge { background:rgba(42,92,255,0.12); border:1px solid rgba(42,92,255,0.3); color:#4d7cff; font-family:'JetBrains Mono',monospace; font-size:11px; padding:3px 10px; border-radius:20px; display:inline-block; }
-.field-chip { background:#0a0c10; border:1px solid #22262f; border-radius:8px; padding:9px 12px; margin:4px; display:inline-block; min-width:160px; vertical-align:top; }
-.field-label { font-family:'JetBrains Mono',monospace; font-size:9px; color:#484f58; text-transform:uppercase; letter-spacing:1px; margin-bottom:4px; }
-.field-value { font-family:'JetBrains Mono',monospace; font-size:12px; color:#e8ecf4; word-break:break-all; }
-.field-value.null  { color:#484f58; font-style:italic; }
-.field-value.true  { color:#00d97e; }
-.field-value.false { color:#ff4d6a; }
-.field-value.num   { color:#ffa657; }
-.section-label { font-family:'JetBrains Mono',monospace; font-size:10px; color:#4d7cff; text-transform:uppercase; letter-spacing:2px; border-bottom:1px solid #22262f; padding-bottom:6px; margin:14px 0 10px; }
-.nested-obj { background:#0a0c10; border:1px solid #22262f; border-radius:8px; padding:10px 12px; margin-top:8px; }
-
-/* ── Code blocks ── */
-[data-testid="stCode"] { background:#0a0c10 !important; border:1px solid #22262f !important; border-radius:10px !important; }
-[data-testid="stCode"] pre { background:transparent !important; font-family:'JetBrains Mono',monospace !important; font-size:12px !important; }
-
-/* ── Download button ── */
-[data-testid="stDownloadButton"] > button {
-    background:#111318 !important; color:#00d97e !important;
-    border:1px solid #00d97e55 !important; border-radius:8px !important;
-    font-family:'JetBrains Mono',monospace !important; font-size:12px !important;
-}
-[data-testid="stDownloadButton"] > button:hover { background:#00d97e18 !important; }
-
-hr { border-color:#22262f !important; }
-.empty-state { text-align:center; padding:70px 20px; font-family:'JetBrains Mono',monospace; color:#484f58; }
-.empty-icon  { font-size:48px; margin-bottom:16px; opacity:0.3; }
-</style>
-""", unsafe_allow_html=True)
+apply_theme("light" if st.session_state.get("light_mode") else "dark")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def build_curl_html(base_url, model, ids, token, provider_key, connection_id):
-    masked = (token[:8] + "••••••") if len(token) > 8 else "••••••"
-    url_str = f"{base_url}?model={model}&ids={ids}"
+ENV_PATH = Path(__file__).parent / ".env"
+DEFAULT_BASE_URL = "https://nango.{env}.laudio.io/records"
+ENVIRONMENTS = ["sandbox-global", "sandbox-us", "dev", "stg", "prod"]
+CLIENT_KEY_RE = re.compile(r"^([A-Z0-9]+)_NANGO_CONNECTION_ID$")
+PROVIDER_KEYS = ["workday", "workday-oauth", "ukg-pro", "ukg-pro-wfm", "sharepoint-online-oauth2-cc"]
+CUSTOM_MODEL = "✏️ Custom…"
+CUSTOM_PROVIDER = "✏️ Custom…"
+CUSTOM_CLIENT = "✏️ Custom…"
+RAW_PREVIEW_CHARS = 60_000
+MAX_VALUE_CHARS = 300
+
+# model -> Nango sync that produces it
+MODELS = {
+    "Company": "companies",
+    "CostCenter": "cost-centers",
+    "Location": "locations",
+    "MatrixRelationship": "matrix-managers",
+    "PtoBalance": "pto-balance",
+    "LicenseRaas": "raas-license",
+    "EmployeeRaas": "raas-unified-employees",
+    "StandardAbsence": "timesheet-absence",
+    "StandardSchedule": "timesheet-schedule",
+    "StandardTimesheet": "time-tracking",
+    "StandardEmployee": "unified-employees",
+}
+
+
+def esc(value):
+    return html.escape(str(value))
+
+
+def load_env():
+    values = {k: v for k, v in dotenv_values(ENV_PATH).items() if v is not None}
+    values.update({k: v for k, v in os.environ.items() if "_NANGO_" in k})
+    return values
+
+
+def env_key(prefix, field):
+    """e.g. ('sandbox-global', 'BASE_URL') -> SANDBOX_GLOBAL_NANGO_BASE_URL"""
+    return f"{prefix.strip().upper().replace('-', '_')}_NANGO_{field}"
+
+
+def discover_clients(env):
+    """Clients are the <CLIENT> prefixes of <CLIENT>_NANGO_CONNECTION_ID entries, in .env order."""
+    return list(dict.fromkeys(m.group(1).lower() for k in env if (m := CLIENT_KEY_RE.match(k))))
+
+
+def build_params(model, ids, limit, cursor=None):
+    params = {"model": model}
+    if ids:
+        params["ids"] = ids
+    if limit:
+        params["limit"] = limit
+    if cursor:
+        params["cursor"] = cursor
+    return params
+
+
+def build_url(base_url, params):
+    return f"{base_url}?{urlencode(params, safe=',')}"
+
+
+def mask_token(token):
+    return f"{token[:4]}••••••" if token else "<TOKEN>"
+
+
+def build_curl_html(url, token, provider_key, connection_id):
     return (
         f'<span class="kw">curl</span> <span class="flag">-v</span> '
-        f'<span class="url">"{url_str}"</span> \\\n'
-        f'  <span class="flag">-H</span> <span class="val">"Authorization: Bearer {masked}"</span> \\\n'
-        f'  <span class="flag">-H</span> <span class="val">"Provider-Config-Key: {provider_key}"</span> \\\n'
-        f'  <span class="flag">-H</span> <span class="val">"Connection-Id: {connection_id}"</span>'
+        f'<span class="url">"{esc(url)}"</span> \\\n'
+        f'  <span class="flag">-H</span> <span class="val">"Authorization: Bearer {esc(mask_token(token))}"</span> \\\n'
+        f'  <span class="flag">-H</span> <span class="val">"Provider-Config-Key: {esc(provider_key)}"</span> \\\n'
+        f'  <span class="flag">-H</span> <span class="val">"Connection-Id: {esc(connection_id)}"</span>'
     )
 
 
-def build_curl_plain(base_url, model, ids, token, provider_key, connection_id):
-    masked = (token[:8] + "••••••") if len(token) > 8 else "••••••"
+def build_curl_plain(url, token, provider_key, connection_id):
     return (
-        f'curl -v "{base_url}?model={model}&ids={ids}" \\\n'
-        f'  -H "Authorization: Bearer {masked}" \\\n'
+        f'curl -v "{url}" \\\n'
+        f'  -H "Authorization: Bearer {mask_token(token)}" \\\n'
         f'  -H "Provider-Config-Key: {provider_key}" \\\n'
         f'  -H "Connection-Id: {connection_id}"'
     )
@@ -283,10 +151,35 @@ def colorize_value(val):
         return f'<span class="field-value {css}">{str(val).lower()}</span>'
     if isinstance(val, (int, float)):
         return f'<span class="field-value num">{val}</span>'
-    return f'<span class="field-value">{val}</span>'
+    text = val if isinstance(val, str) else json.dumps(val)
+    if len(text) > MAX_VALUE_CHARS:
+        text = text[:MAX_VALUE_CHARS] + "…"
+    return f'<span class="field-value">{esc(text)}</span>'
 
 
-def render_record_card(rec: dict, index: int) -> str:
+def extract_records(data, ok):
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        if isinstance(data.get("records"), list):
+            return data["records"]
+        if ok:
+            return [data]
+    return None
+
+
+def records_to_df(records):
+    df = pd.json_normalize([r for r in records if isinstance(r, dict)], sep=".")
+    for col in df.columns:
+        if df[col].map(lambda v: isinstance(v, (list, dict))).any():
+            df[col] = df[col].map(lambda v: json.dumps(v) if isinstance(v, (list, dict)) else v)
+    return df
+
+
+def render_record_card(rec, index: int, model: str) -> str:
+    if not isinstance(rec, dict):
+        rec = {"value": rec}
+
     def _subtitle_part(value):
         if value in (None, ""):
             return ""
@@ -300,17 +193,21 @@ def render_record_card(rec: dict, index: int) -> str:
             return ", ".join(str(item) for item in value if item not in (None, ""))
         return str(value)
 
-    first  = rec.get("legalFirstName", "")
-    last   = rec.get("legalLastName", "")
-    pref   = rec.get("preferredName", "")
-    name   = pref or f"{first} {last}".strip() or rec.get("fullName", "") or f"Record {index+1}"
-    emp_id = rec.get("employeeId", rec.get("id", rec.get("_nango_id", f"#{index+1}")))
+    first = rec.get("legalFirstName") or rec.get("firstName") or ""
+    last  = rec.get("legalLastName") or rec.get("lastName") or ""
+    name_keys = ("preferredName", "displayName", "fullName", "name", "departmentName", "title", "description")
+    name = (
+        rec.get("preferredName")
+        or f"{first} {last}".strip()
+        or next((_subtitle_part(rec[k]) for k in name_keys if rec.get(k)), "")
+        or f"Record {index+1}"
+    )
+    rec_id = rec.get("employeeId", rec.get("id", rec.get("_nango_id", f"{index+1}")))
     job    = rec.get("jobTitle", rec.get("positionTitle", ""))
     dept   = rec.get("department", rec.get("organizationName", ""))
-    subtitle_parts = [_subtitle_part(job), _subtitle_part(dept)]
-    subtitle = " · ".join(x for x in subtitle_parts if x) or "StandardEmployee"
+    subtitle = " · ".join(x for x in (_subtitle_part(job), _subtitle_part(dept)) if x) or model
 
-    SKIP = {"legalFirstName","legalLastName","preferredName","fullName","jobTitle","positionTitle"}
+    SKIP = {"legalFirstName", "legalLastName", "preferredName", "fullName", "jobTitle", "positionTitle"}
     scalar_html = ""
     nested_sections = ""
 
@@ -319,96 +216,190 @@ def render_record_card(rec: dict, index: int) -> str:
             continue
         if isinstance(v, dict):
             inner = "".join(
-                f'<div class="field-chip"><div class="field-label">{nk}</div>{colorize_value(nv)}</div>'
+                f'<div class="field-chip"><div class="field-label">{esc(nk)}</div>{colorize_value(nv)}</div>'
                 for nk, nv in v.items()
             )
-            nested_sections += f'<div class="nested-obj"><div class="section-label">{k}</div><div>{inner}</div></div>'
-        elif isinstance(v, list):
-            display = json.dumps(v)[:120] + ("…" if len(json.dumps(v)) > 120 else "")
-            scalar_html += f'<div class="field-chip"><div class="field-label">{k}</div><span class="field-value">{display}</span></div>'
+            nested_sections += (
+                f'<div class="nested-obj"><div class="section-label">{esc(k)}</div>'
+                f'<div class="card-scroll">{inner}</div></div>'
+            )
         else:
-            scalar_html += f'<div class="field-chip"><div class="field-label">{k}</div>{colorize_value(v)}</div>'
+            scalar_html += f'<div class="field-chip"><div class="field-label">{esc(k)}</div>{colorize_value(v)}</div>'
 
     return f"""
 <div class="record-card">
-  <div style="display:flex;align-items:flex-start;justify-content:space-between;
-              margin-bottom:14px;border-bottom:1px solid #22262f;padding-bottom:12px">
+  <div class="record-head">
     <div>
-      <div class="record-name">{name}</div>
-      <div class="record-meta">{subtitle}</div>
+      <div class="record-name">{esc(name)}</div>
+      <div class="record-meta">{esc(subtitle)}</div>
     </div>
-    <div class="record-id-badge">#{emp_id}</div>
+    <div class="record-id-badge">#{esc(rec_id)}</div>
   </div>
   <div>{scalar_html}</div>
   {nested_sections}
 </div>"""
 
 
-def fetch_records(base_url, model, ids_str, token, provider_key, connection_id):
-    url = f"{base_url}?model={model}&ids={ids_str}"
+def do_fetch(req, page=1):
+    """Run the request and store the outcome in session state."""
+    st.session_state.fetch_error = None
+    url = build_url(req["base_url"], req["params"])
     headers = {
-        "Authorization": f"Bearer {token}",
-        "Provider-Config-Key": provider_key,
-        "Connection-Id": connection_id,
+        "Authorization": f"Bearer {req['token']}",
+        "Provider-Config-Key": req["provider_key"],
+        "Connection-Id": req["connection_id"],
         "Accept": "application/json",
     }
-    t0 = time.time()
-    resp = requests.get(url, headers=headers, timeout=30)
-    elapsed = round((time.time() - t0) * 1000)
-    return resp, elapsed
+    try:
+        t0 = time.time()
+        resp = requests.get(url, headers=headers, timeout=60)
+        elapsed = round((time.time() - t0) * 1000)
+        try:
+            data = resp.json()
+        except Exception:
+            data = resp.text
+        st.session_state.last_response = {
+            "status_code": resp.status_code,
+            "ok": resp.ok,
+            "elapsed": elapsed,
+            "data": data,
+            "size": len(resp.content),
+            "timestamp": datetime.now().strftime("%H:%M:%S"),
+            "model": req["params"]["model"],
+            "page": page,
+            "next_cursor": data.get("next_cursor") if isinstance(data, dict) else None,
+            "url": url,
+            "req": req,
+        }
+    except requests.exceptions.SSLError as e:
+        st.session_state.fetch_error = f"🔒 SSL certificate error: {e}"
+    except requests.exceptions.ConnectionError:
+        st.session_state.fetch_error = "❌ Connection failed — check the base URL and your network."
+    except requests.exceptions.Timeout:
+        st.session_state.fetch_error = "⏱ Request timed out after 60 seconds."
+    except Exception as e:
+        st.session_state.fetch_error = f"Unexpected error: {e}"
+
+
+def go_next_page():
+    r = st.session_state.last_response
+    req = {**r["req"], "params": {**r["req"]["params"], "cursor": r["next_cursor"]}}
+    do_fetch(req, page=r["page"] + 1)
+
+
+def human_size(n):
+    return f"{n/1024:.1f} KB" if n < 1024 * 1024 else f"{n/1024/1024:.2f} MB"
 
 
 # ── Sidebar — config only ─────────────────────────────────────────────────────
+def sidebar_heading(text):
+    st.markdown(f'<p class="side-heading">{text}</p>', unsafe_allow_html=True)
+
+
+env = load_env()
+
 with st.sidebar:
     st.markdown("""
-    <div style="padding:16px 0 20px">
-      <div style="font-family:'Syne',sans-serif;font-size:20px;font-weight:800;color:#e8ecf4">
-        ⚡ Nango Explorer
-      </div>
-      <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#4d7cff;margin-top:4px;letter-spacing:1px">
-        StandardEmployee API
-      </div>
+    <div class="sidebar-brand">
+      <div class="sidebar-title">⚡ Nango Explorer</div>
+      <div class="sidebar-sub">Records API</div>
     </div>
     """, unsafe_allow_html=True)
-
-    st.markdown('<p style="font-family:\'JetBrains Mono\',monospace;font-size:10px;color:#4d7cff;letter-spacing:2px;text-transform:uppercase">🔧 Endpoint</p>', unsafe_allow_html=True)
-    base_url      = st.text_input("Base URL", value="https://nango.sandbox-us.laudio.io/records", key="base_url")
-    model         = st.text_input("Model",    value="StandardEmployee", key="model")
-
+    st.toggle("☀️  Light mode", key="light_mode")
     st.divider()
-    st.markdown('<p style="font-family:\'JetBrains Mono\',monospace;font-size:10px;color:#4d7cff;letter-spacing:2px;text-transform:uppercase">🔑 Auth & Headers</p>', unsafe_allow_html=True)
-    token         = st.text_input("Bearer Token", value="", type="password", placeholder="Paste token here…", key="token")
-    provider_key  = st.text_input("Provider-Config-Key", value="workday", key="pck")
-    connection_id = st.text_input("Connection-Id", value="3-nmht-sandbox", key="cid")
 
-    st.divider()
-    st.markdown('<p style="font-family:\'JetBrains Mono\',monospace;font-size:10px;color:#4d7cff;letter-spacing:2px;text-transform:uppercase">🔍 Query</p>', unsafe_allow_html=True)
-    ids_input = st.text_input(
-        "Employee ID(s) — comma-separated",
-        value="05640",
-        placeholder="e.g. 05640, 05641",
-        key="ids",
-        help="Enter one or more employee IDs separated by commas"
+    sidebar_heading("🔧 Endpoint")
+    environment = st.selectbox("Environment", ENVIRONMENTS, key="environment")
+    # Widget keys include the environment/client so each keeps its own editable values.
+    base_url = st.text_input(
+        "Base URL",
+        value=env.get(env_key(environment, "BASE_URL"), DEFAULT_BASE_URL.format(env=environment)),
+        key=f"base_url::{environment}",
     )
-    fetch_clicked = st.button("⚡  Fetch Records", use_container_width=True)
+    model_choice = st.selectbox(
+        "Model",
+        [*MODELS, CUSTOM_MODEL],
+        index=list(MODELS).index("StandardEmployee"),
+        format_func=lambda m: m if m == CUSTOM_MODEL else f"{m}  ·  {MODELS[m]}",
+        key="model_choice",
+    )
+    if model_choice == CUSTOM_MODEL:
+        model = st.text_input("Custom model name", key="custom_model", placeholder="e.g. Company").strip()
+    else:
+        model = model_choice
+
+    st.divider()
+    sidebar_heading("🔑 Auth & Headers")
+    tok_val = env.get(env_key(environment, "BEARER_TOKEN"), "")
+    if not tok_val:
+        st.markdown(
+            f'<div class="src-note"><b class="warn">no token for {esc(environment)} in .env</b> · paste one below</div>',
+            unsafe_allow_html=True,
+        )
+    token = st.text_input("Bearer Token", value=tok_val, type="password",
+                          placeholder="Paste token here…", key=f"token::{environment}")
+
+    clients = discover_clients(env)
+    client_choice = st.selectbox("Client", [*clients, CUSTOM_CLIENT], key="client_choice")
+    if client_choice == CUSTOM_CLIENT:
+        client = st.text_input("Custom client", key="custom_client", placeholder="e.g. gei1").strip().lower()
+    else:
+        client = client_choice
+
+    connection_id = st.text_input(
+        "Connection-Id", value=env.get(env_key(client, "CONNECTION_ID"), "") if client else "", key=f"cid::{client}"
+    )
+    pck_default = (env.get(env_key(client, "PROVIDER_CONFIG_KEY"), "") if client else "") or PROVIDER_KEYS[0]
+    pck_options = [*PROVIDER_KEYS, *([pck_default] if pck_default not in PROVIDER_KEYS else []), CUSTOM_PROVIDER]
+    pck_choice = st.selectbox("Provider-Config-Key", pck_options, index=pck_options.index(pck_default), key=f"pck::{client}")
+    if pck_choice == CUSTOM_PROVIDER:
+        provider_key = st.text_input("Custom provider key", key=f"pck_custom::{client}", placeholder="e.g. workday-oauth").strip()
+    else:
+        provider_key = pck_choice
+
+    if st.button("💾  Save to .env", width="stretch", disabled=not client, key="save_env",
+                 help=f"Saves {env_key(environment, '*')} (base URL, token) and {env_key(client or 'client', '*')} "
+                      "(connection id, provider key)."):
+        ENV_PATH.touch(exist_ok=True)
+        set_key(ENV_PATH, env_key(environment, "BASE_URL"), base_url)
+        set_key(ENV_PATH, env_key(environment, "BEARER_TOKEN"), token)
+        set_key(ENV_PATH, env_key(client, "CONNECTION_ID"), connection_id)
+        set_key(ENV_PATH, env_key(client, "PROVIDER_CONFIG_KEY"), provider_key)
+        st.toast(f"Saved {environment} / {client} settings to .env", icon="✅")
+
+    st.divider()
+    sidebar_heading("🔍 Query")
+    ids_input = st.text_input(
+        "Record ID(s) — optional",
+        value="",
+        placeholder="Leave empty to fetch all",
+        key="ids",
+        help="Comma-separated record IDs. Not needed for most models.",
+    )
+    limit = st.number_input(
+        "Page size (limit)", min_value=1, max_value=1000, value=100, step=50, key="limit",
+        help="Records per request. Use 'Next page' in the results to continue.",
+    )
+    fetch_clicked = st.button("⚡  Fetch Records", width="stretch", type="primary")
 
 
 # ── Session state ─────────────────────────────────────────────────────────────
-if "last_response" not in st.session_state:
-    st.session_state.last_response = None
+st.session_state.setdefault("last_response", None)
+st.session_state.setdefault("fetch_error", None)
 
 ids_clean = ",".join(i.strip() for i in ids_input.split(",") if i.strip())
+preview_url = build_url(base_url, build_params(model or "…", ids_clean, limit))
 
 # ── Hero ──────────────────────────────────────────────────────────────────────
-st.markdown("""
+st.markdown(f"""
 <div class="hero">
   <div class="hero-row">
     <div class="hero-logo">N↗</div>
     <div>
       <div class="hero-title">Nango API Explorer</div>
-      <div class="hero-sub">StandardEmployee · Laudio Sandbox · workday integration</div>
+      <div class="hero-sub">{esc(model or "—")} · {esc(client or "—")} · {esc(provider_key)}</div>
     </div>
-    <div class="hero-dot"><div class="live-dot"></div>sandbox-us</div>
+    <div class="hero-dot"><div class="live-dot"></div>{esc(urlparse(base_url).hostname or base_url)}</div>
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -418,18 +409,17 @@ col_left, col_right = st.columns([1, 1], gap="medium")
 
 with col_left:
     cfg_rows = [
-        ("URL",           f"{base_url}?model={model}&ids={ids_clean or '…'}"),
-        ("Provider-Key",  provider_key),
-        ("Connection-Id", connection_id),
+        ("Environment",   f'<span class="model-pill">{esc(environment)}</span>'),
+        ("Client",        esc(client) or "⚠ Not set"),
+        ("Model",         f'<span class="model-pill">{esc(model or "—")}</span>'),
+        ("URL",           esc(preview_url)),
+        ("Provider-Key",  esc(provider_key)),
+        ("Connection-Id", esc(connection_id) or "⚠ Not set"),
         ("Auth",          "Bearer ••••••" if token else "⚠ No token set"),
-        ("IDs",           ids_clean or "—"),
+        ("IDs",           esc(ids_clean) or "— (all records)"),
     ]
     rows_html = "".join(
-        f'<div style="display:flex;gap:12px;padding:9px 0;border-bottom:1px solid #22262f;'
-        f'font-family:\'JetBrains Mono\',monospace;font-size:12px">'
-        f'<div style="min-width:110px;color:#484f58;font-size:10px;text-transform:uppercase;'
-        f'letter-spacing:1px;padding-top:2px">{label}</div>'
-        f'<div style="color:#e8ecf4;word-break:break-all">{value}</div></div>'
+        f'<div class="cfg-row"><div class="cfg-label">{label}</div><div class="cfg-value">{value}</div></div>'
         for label, value in cfg_rows
     )
     st.markdown(f"""
@@ -440,17 +430,12 @@ with col_left:
     """, unsafe_allow_html=True)
 
 with col_right:
-    curl_html = build_curl_html(
-        base_url, model,
-        ids_clean or "…",
-        token or "&lt;TOKEN&gt;",
-        provider_key, connection_id
-    )
+    curl_html = build_curl_html(preview_url, token, provider_key, connection_id)
     st.markdown(f"""
     <div class="curl-panel">
       <div class="curl-header">⌨ cURL Command</div>
       <div class="curl-box">{curl_html}</div>
-      <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#484f58;margin-top:10px">
+      <div class="panel-hint">
         ↑ Updates live as you edit fields in the sidebar
       </div>
     </div>
@@ -460,34 +445,22 @@ st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
 
 # ── Fetch ─────────────────────────────────────────────────────────────────────
 if fetch_clicked:
-    if not ids_clean:
-        st.error("Please enter at least one Employee ID.")
+    if not model:
+        st.error("Please choose or enter a model.")
     elif not token:
         st.error("Bearer token is required.")
     else:
         with st.spinner("Fetching records from Nango…"):
-            try:
-                resp, elapsed = fetch_records(base_url, model, ids_clean, token, provider_key, connection_id)
-                try:
-                    data = resp.json()
-                except Exception:
-                    data = resp.text
+            do_fetch({
+                "base_url": base_url,
+                "params": build_params(model, ids_clean, limit),
+                "token": token,
+                "provider_key": provider_key,
+                "connection_id": connection_id,
+            })
 
-                st.session_state.last_response = {
-                    "status_code": resp.status_code,
-                    "ok": resp.ok,
-                    "elapsed": elapsed,
-                    "data": data,
-                    "timestamp": datetime.now().strftime("%H:%M:%S"),
-                    "ids": ids_clean,
-                    "url": f"{base_url}?model={model}&ids={ids_clean}",
-                }
-            except requests.exceptions.ConnectionError:
-                st.error("❌ Connection failed — check the base URL and your network.")
-            except requests.exceptions.Timeout:
-                st.error("⏱ Request timed out after 30 seconds.")
-            except Exception as e:
-                st.error(f"Unexpected error: {e}")
+if st.session_state.fetch_error:
+    st.error(st.session_state.fetch_error)
 
 
 # ── Results ───────────────────────────────────────────────────────────────────
@@ -495,9 +468,11 @@ if st.session_state.last_response:
     r    = st.session_state.last_response
     data = r["data"]
     ok   = r["ok"]
+    all_records = extract_records(data, ok)
 
     badge_cls = "badge-ok" if ok else "badge-err"
     badge_txt = f"✓ {r['status_code']} OK" if ok else f"✗ {r['status_code']}"
+    count_txt = f"{len(all_records):,}" if all_records is not None else "—"
 
     st.markdown(f"""
     <div class="metric-row">
@@ -506,82 +481,121 @@ if st.session_state.last_response:
         <div style="margin-top:6px"><span class="badge {badge_cls}">{badge_txt}</span></div>
       </div>
       <div class="metric-box">
+        <div class="metric-title">Model</div>
+        <div style="margin-top:6px"><span class="model-pill">{esc(r['model'])}</span></div>
+      </div>
+      <div class="metric-box">
+        <div class="metric-title">Records (page {r['page']})</div>
+        <div class="metric-val">{count_txt}</div>
+      </div>
+      <div class="metric-box">
+        <div class="metric-title">Size</div>
+        <div class="metric-val" style="font-size:14px">{human_size(r['size'])}</div>
+      </div>
+      <div class="metric-box">
         <div class="metric-title">Latency</div>
-        <div class="metric-val">{r['elapsed']} ms</div>
+        <div class="metric-val" style="font-size:14px">{r['elapsed']} ms</div>
       </div>
       <div class="metric-box">
         <div class="metric-title">Time</div>
         <div class="metric-val" style="font-size:14px">{r['timestamp']}</div>
       </div>
-      <div class="metric-box">
-        <div class="metric-title">IDs Queried</div>
-        <div class="metric-val" style="font-size:14px">{r['ids']}</div>
-      </div>
     </div>
     <div class="url-bar">
-      GET &nbsp;<span style="color:#4d7cff">{r['url']}</span>
+      GET &nbsp;<span class="url-val">{esc(r['url'])}</span>
     </div>
     """, unsafe_allow_html=True)
 
-    tab_raw, tab_beautiful, tab_info = st.tabs(["⬚  Raw JSON", "✦  Beautiful View", "📋  Response Info"])
+    bar_filter, bar_next = st.columns([3, 1], vertical_alignment="bottom")
+    with bar_filter:
+        needle = st.text_input(
+            "🔎 Filter records on this page", key="filter",
+            placeholder="Type to filter the Table and Cards views…",
+        ).strip().lower() if all_records else ""
+    with bar_next:
+        if r["next_cursor"]:
+            st.button("Next page  ▶", key="next_page", on_click=go_next_page, width="stretch")
+        elif all_records:
+            st.markdown('<div class="src-note" style="margin:0">Last page</div>', unsafe_allow_html=True)
+
+    shown = (
+        [rec for rec in all_records if needle in json.dumps(rec).lower()]
+        if needle and all_records else all_records
+    )
+
+    tab_table, tab_beautiful, tab_raw, tab_info = st.tabs(["▦  Table", "✦  Cards", "⬚  Raw JSON", "📋  Response Info"])
+
+    with tab_table:
+        if not ok:
+            st.error("API returned an error — check the Raw JSON tab for details.")
+        elif not shown:
+            st.markdown('<div class="no-records">No records to show.</div>', unsafe_allow_html=True)
+        else:
+            st.caption(f"{len(shown):,} of {len(all_records):,} record(s) · nested fields are flattened (a.b.c)")
+            st.dataframe(records_to_df(shown), width="stretch", height=520)
 
     with tab_raw:
         json_str = json.dumps(data, indent=2) if not isinstance(data, str) else data
-        if isinstance(data, list):
-            st.markdown(f'<span class="badge badge-ok" style="margin-bottom:10px;display:inline-block">{len(data)} record(s)</span>', unsafe_allow_html=True)
-        elif isinstance(data, dict) and "records" in data:
-            st.markdown(f'<span class="badge badge-ok" style="margin-bottom:10px;display:inline-block">{len(data["records"])} record(s)</span>', unsafe_allow_html=True)
-        st.code(json_str, language="json")
+        if len(json_str) > RAW_PREVIEW_CHARS:
+            st.warning(
+                f"Large response ({human_size(r['size'])}) — previewing the first {RAW_PREVIEW_CHARS:,} of "
+                f"{len(json_str):,} characters. Download for the full payload."
+            )
+        st.code(json_str[:RAW_PREVIEW_CHARS], language="json")
         st.download_button(
-            label="⬇  Download JSON",
+            label="⬇  Download full JSON",
             data=json_str,
-            file_name=f"nango_{r['ids']}_{r['timestamp'].replace(':','')}.json",
+            file_name=f"nango_{r['model']}_p{r['page']}_{r['timestamp'].replace(':','')}.json",
             mime="application/json",
         )
+        if all_records:
+            with st.expander("🌲 Tree view (first 25 records)"):
+                st.json(all_records[:25], expanded=1)
 
     with tab_beautiful:
-        if isinstance(data, list):
-            records = data
-        elif isinstance(data, dict) and "records" in data and isinstance(data["records"], list):
-            records = data["records"]
-        elif isinstance(data, dict) and ok:
-            records = [data]
-        else:
-            records = None
-
         if not ok:
-            st.markdown("""
-            <div style="background:#ff4d6a18;border:1px solid #ff4d6a55;border-radius:10px;
-                        padding:18px;font-family:'JetBrains Mono',monospace;font-size:13px;color:#ff4d6a">
-              ⚠ API returned an error — check the Raw JSON tab for details.
-            </div>""", unsafe_allow_html=True)
-        elif not records:
-            st.markdown('<div style="text-align:center;padding:40px;font-family:\'JetBrains Mono\',monospace;color:#484f58">No records returned.</div>', unsafe_allow_html=True)
+            st.error("API returned an error — check the Raw JSON tab for details.")
+        elif not shown:
+            st.markdown('<div class="no-records">No records to show.</div>', unsafe_allow_html=True)
         else:
-            st.markdown(f'<span class="badge badge-ok" style="margin-bottom:14px;display:inline-block">{len(records)} employee record(s)</span>', unsafe_allow_html=True)
-            for i, rec in enumerate(records):
-                st.markdown(render_record_card(rec, i), unsafe_allow_html=True)
+            c_size, c_page, c_info = st.columns([1, 1, 3], vertical_alignment="bottom")
+            page_size = c_size.selectbox("Cards per view", [10, 25, 50], key="card_page_size")
+            n_pages = max(1, -(-len(shown) // page_size))
+            view_page = c_page.number_input("View", 1, n_pages, 1, key="card_view_page")
+            start = (view_page - 1) * page_size
+            c_info.markdown(
+                f'<span class="badge badge-ok">{start + 1:,}–{min(start + page_size, len(shown)):,} '
+                f'of {len(shown):,} · view {view_page}/{n_pages}</span>',
+                unsafe_allow_html=True,
+            )
+            for i, rec in enumerate(shown[start:start + page_size], start=start):
+                st.markdown(render_record_card(rec, i, r["model"]), unsafe_allow_html=True)
 
     with tab_info:
+        req = r["req"]
         st.markdown('<div class="section-label">Request Details</div>', unsafe_allow_html=True)
         st.code(f"""URL:              {r['url']}
 Method:           GET
-Provider-Key:     {provider_key}
-Connection-Id:    {connection_id}
+Model:            {r['model']}
+Provider-Key:     {req['provider_key']}
+Connection-Id:    {req['connection_id']}
+Page:             {r['page']}
+Next cursor:      {r['next_cursor'] or '—'}
 Timestamp:        {r['timestamp']}
 Latency:          {r['elapsed']} ms
+Size:             {human_size(r['size'])}
 Status:           {r['status_code']}""", language="yaml")
 
         st.markdown('<div class="section-label" style="margin-top:16px">Full cURL (token masked)</div>', unsafe_allow_html=True)
-        st.code(build_curl_plain(base_url, model, r["ids"], token, provider_key, connection_id), language="bash")
+        st.code(build_curl_plain(r["url"], req["token"], req["provider_key"], req["connection_id"]), language="bash")
 
 else:
     st.markdown("""
     <div class="empty-state">
       <div class="empty-icon">⬡</div>
-      <div style="font-size:14px">Configure your request in the sidebar and hit
-        <strong style="color:#2a5cff">⚡ Fetch Records</strong>
+      <div style="font-size:14px">Pick an environment, client and model in the sidebar, then hit
+        <strong>⚡ Fetch Records</strong>
       </div>
-      <div style="font-size:11px;margin-top:8px;color:#30363d">Supports multiple comma-separated IDs</div>
+      <div style="font-size:11px;margin-top:8px">Record IDs are optional · credentials load from .env</div>
     </div>
     """, unsafe_allow_html=True)
