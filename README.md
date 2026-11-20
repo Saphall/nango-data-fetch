@@ -35,7 +35,7 @@ Then open <http://localhost:8501> in your browser.
 ## Features
 
 - **Environment / Client / Model dropdowns** — the environment sets the base URL and bearer token, the client sets the Connection-Id and Provider-Config-Key (a dropdown with a custom option), all loaded from `.env` into editable fields; **Save to .env** writes edits back
-- **Glass UI with dark / light mode** — toggle ☀️ Light mode in the sidebar; styling lives in `styles.css`
+- **Glass UI with dark / light mode** — toggle Light mode in the sidebar; styling lives in `ui.css`
 - **Optional IDs** — leave empty to fetch all records, or enter comma-separated IDs
 - **Large outputs** — page size (`limit`) with **Next page** cursor paging, a filterable sortable **Table** view, paginated **Cards**, and a truncated **Raw JSON** preview with full download
 - **Live cURL preview** — see the exact curl command (token masked)

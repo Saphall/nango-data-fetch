@@ -25,25 +25,28 @@ st.set_page_config(
 )
 
 # ── Custom CSS ────────────────────────────────────────────────────────────────
-STYLES = (Path(__file__).parent / "styles.css").read_text()
+STYLES = (Path(__file__).parent / "ui.css").read_text()
 THEMES = {
+    # Ink background, teal primary, amber highlight
     "dark": {
-        "bg": "#070a12", "blob-1": "rgba(42,92,255,.35)", "blob-2": "rgba(0,217,126,.18)", "blob-3": "rgba(150,80,255,.25)",
-        "glass": "rgba(255,255,255,.055)", "glass-strong": "rgba(255,255,255,.085)", "highlight": "rgba(255,255,255,.10)",
-        "border": "rgba(255,255,255,.12)", "text": "#e8ecf4", "muted": "#9aa3b8", "dim": "#6b7488",
-        "accent": "#6b8cff", "accent-2": "#00d97e", "accent-soft": "rgba(77,124,255,.28)", "danger": "#ff5c77",
-        "c-kw": "#ffa657", "input-bg": "rgba(255,255,255,.06)", "chip-bg": "rgba(255,255,255,.05)",
-        "code-bg": "rgba(0,0,0,.32)", "sidebar-bg": "rgba(8,11,20,.62)", "pop-bg": "#131a2b",
-        "shadow": "0 8px 32px rgba(0,0,0,.40)", "invert": "none",
+        "bg": "#0a0f16", "blob-1": "rgba(20,184,166,.36)", "blob-2": "rgba(251,191,36,.14)", "blob-3": "rgba(99,102,241,.30)",
+        "glass": "rgba(255,255,255,.055)", "glass-strong": "rgba(255,255,255,.09)", "highlight": "rgba(255,255,255,.10)",
+        "border": "rgba(255,255,255,.12)", "text": "#e9eef5", "muted": "#9ba7b8", "dim": "#6c7889",
+        "accent": "#2dd4bf", "accent-soft": "rgba(45,212,191,.20)", "ok": "#34d399", "danger": "#fb7185",
+        "c-kw": "#fbbf24", "grad": "linear-gradient(135deg,#2dd4bf,#38bdf8)", "on-accent": "#04211f",
+        "input-bg": "rgba(255,255,255,.06)", "chip-bg": "rgba(255,255,255,.05)", "code-bg": "rgba(0,0,0,.30)",
+        "sidebar-bg": "rgba(9,13,20,.66)", "pop-bg": "#141c28", "shadow": "0 8px 32px rgba(0,0,0,.38)", "invert": "none",
     },
+    # Warm paper background
     "light": {
-        "bg": "#e9eefb", "blob-1": "rgba(77,124,255,.45)", "blob-2": "rgba(0,200,140,.30)", "blob-3": "rgba(190,120,255,.35)",
-        "glass": "rgba(255,255,255,.55)", "glass-strong": "rgba(255,255,255,.78)", "highlight": "rgba(255,255,255,.9)",
-        "border": "rgba(30,45,90,.12)", "text": "#141a2b", "muted": "#4b556b", "dim": "#7b859b",
-        "accent": "#2a5cff", "accent-2": "#00a566", "accent-soft": "rgba(42,92,255,.20)", "danger": "#e0344f",
-        "c-kw": "#c25e00", "input-bg": "rgba(255,255,255,.75)", "chip-bg": "rgba(255,255,255,.65)",
-        "code-bg": "rgba(255,255,255,.65)", "sidebar-bg": "rgba(245,248,255,.65)", "pop-bg": "#ffffff",
-        "shadow": "0 8px 32px rgba(31,45,90,.14)", "invert": "invert(1) hue-rotate(180deg)",
+        "bg": "#f5f1e9", "blob-1": "rgba(20,184,166,.26)", "blob-2": "rgba(251,146,60,.24)", "blob-3": "rgba(129,140,248,.24)",
+        "glass": "rgba(255,255,255,.58)", "glass-strong": "rgba(255,255,255,.80)", "highlight": "rgba(255,255,255,.95)",
+        "border": "rgba(40,50,60,.12)", "text": "#17202a", "muted": "#4a5565", "dim": "#7a8494",
+        "accent": "#0f766e", "accent-soft": "rgba(15,118,110,.15)", "ok": "#15803d", "danger": "#be123c",
+        "c-kw": "#b45309", "grad": "linear-gradient(135deg,#0f766e,#0369a1)", "on-accent": "#ffffff",
+        "input-bg": "rgba(255,255,255,.78)", "chip-bg": "rgba(255,255,255,.65)", "code-bg": "rgba(255,255,255,.66)",
+        "sidebar-bg": "rgba(250,247,240,.70)", "pop-bg": "#ffffff", "shadow": "0 8px 30px rgba(60,50,30,.12)",
+        "invert": "invert(1) hue-rotate(180deg)",
     },
 }
 
@@ -124,20 +127,11 @@ def mask_token(token):
     return f"{token[:4]}••••••" if token else "<TOKEN>"
 
 
-def build_curl_html(url, token, provider_key, connection_id):
-    return (
-        f'<span class="kw">curl</span> <span class="flag">-v</span> '
-        f'<span class="url">"{esc(url)}"</span> \\\n'
-        f'  <span class="flag">-H</span> <span class="val">"Authorization: Bearer {esc(mask_token(token))}"</span> \\\n'
-        f'  <span class="flag">-H</span> <span class="val">"Provider-Config-Key: {esc(provider_key)}"</span> \\\n'
-        f'  <span class="flag">-H</span> <span class="val">"Connection-Id: {esc(connection_id)}"</span>'
-    )
-
-
-def build_curl_plain(url, token, provider_key, connection_id):
+def build_curl_plain(url, token, provider_key, connection_id, reveal=False):
+    shown = token if (reveal and token) else mask_token(token)
     return (
         f'curl -v "{url}" \\\n'
-        f'  -H "Authorization: Bearer {mask_token(token)}" \\\n'
+        f'  -H "Authorization: Bearer {shown}" \\\n'
         f'  -H "Provider-Config-Key: {provider_key}" \\\n'
         f'  -H "Connection-Id: {connection_id}"'
     )
@@ -292,8 +286,8 @@ def human_size(n):
 
 
 # ── Sidebar — config only ─────────────────────────────────────────────────────
-def sidebar_heading(text):
-    st.markdown(f'<p class="side-heading">{text}</p>', unsafe_allow_html=True)
+def sidebar_heading(num, text):
+    st.markdown(f'<div class="side-heading"><span class="side-num">{num}</span>{text}</div>', unsafe_allow_html=True)
 
 
 env = load_env()
@@ -301,43 +295,18 @@ env = load_env()
 with st.sidebar:
     st.markdown("""
     <div class="sidebar-brand">
-      <div class="sidebar-title">⚡ Nango Explorer</div>
-      <div class="sidebar-sub">Records API</div>
+      <div class="brand-logo">N</div>
+      <div>
+        <div class="brand-name">Nango Explorer</div>
+        <div class="brand-tag">Browse synced records</div>
+      </div>
     </div>
     """, unsafe_allow_html=True)
-    st.toggle("☀️  Light mode", key="light_mode")
+    st.toggle("Light mode", key="light_mode")
     st.divider()
 
-    sidebar_heading("🔧 Endpoint")
+    sidebar_heading(1, "Connection")
     environment = st.selectbox("Environment", ENVIRONMENTS, key="environment")
-    # Widget keys include the environment/client so each keeps its own editable values.
-    base_url = st.text_input(
-        "Base URL",
-        value=env.get(env_key(environment, "BASE_URL"), DEFAULT_BASE_URL.format(env=environment)),
-        key=f"base_url::{environment}",
-    )
-    model_choice = st.selectbox(
-        "Model",
-        [*MODELS, CUSTOM_MODEL],
-        index=list(MODELS).index("StandardEmployee"),
-        format_func=lambda m: m if m == CUSTOM_MODEL else f"{m}  ·  {MODELS[m]}",
-        key="model_choice",
-    )
-    if model_choice == CUSTOM_MODEL:
-        model = st.text_input("Custom model name", key="custom_model", placeholder="e.g. Company").strip()
-    else:
-        model = model_choice
-
-    st.divider()
-    sidebar_heading("🔑 Auth & Headers")
-    tok_val = env.get(env_key(environment, "BEARER_TOKEN"), "")
-    if not tok_val:
-        st.markdown(
-            f'<div class="src-note"><b class="warn">no token for {esc(environment)} in .env</b> · paste one below</div>',
-            unsafe_allow_html=True,
-        )
-    token = st.text_input("Bearer Token", value=tok_val, type="password",
-                          placeholder="Paste token here…", key=f"token::{environment}")
 
     clients = discover_clients(env)
     client_choice = st.selectbox("Client", [*clients, CUSTOM_CLIENT], key="client_choice")
@@ -346,6 +315,7 @@ with st.sidebar:
     else:
         client = client_choice
 
+    # Widget keys include the environment/client so each keeps its own editable values.
     connection_id = st.text_input(
         "Connection-Id", value=env.get(env_key(client, "CONNECTION_ID"), "") if client else "", key=f"cid::{client}"
     )
@@ -356,6 +326,22 @@ with st.sidebar:
         provider_key = st.text_input("Custom provider key", key=f"pck_custom::{client}", placeholder="e.g. workday-oauth").strip()
     else:
         provider_key = pck_choice
+
+    tok_val = env.get(env_key(environment, "BEARER_TOKEN"), "")
+    token = st.text_input("Bearer token", value=tok_val, type="password",
+                          placeholder="Paste token here…", key=f"token::{environment}")
+    if not tok_val:
+        st.markdown(
+            f'<div class="src-note"><b class="warn">No token for {esc(environment)} in .env</b> — paste one above</div>',
+            unsafe_allow_html=True,
+        )
+
+    with st.expander("Advanced · base URL"):
+        base_url = st.text_input(
+            "Base URL",
+            value=env.get(env_key(environment, "BASE_URL"), DEFAULT_BASE_URL.format(env=environment)),
+            key=f"base_url::{environment}",
+        )
 
     if st.button("💾  Save to .env", width="stretch", disabled=not client, key="save_env",
                  help=f"Saves {env_key(environment, '*')} (base URL, token) and {env_key(client or 'client', '*')} "
@@ -368,19 +354,29 @@ with st.sidebar:
         st.toast(f"Saved {environment} / {client} settings to .env", icon="✅")
 
     st.divider()
-    sidebar_heading("🔍 Query")
+    sidebar_heading(2, "Request")
+    model_choice = st.selectbox(
+        "Model",
+        [*MODELS, CUSTOM_MODEL],
+        index=list(MODELS).index("StandardEmployee"),
+        format_func=lambda m: m if m == CUSTOM_MODEL else f"{m}  ·  {MODELS[m]}",
+        key="model_choice",
+    )
+    if model_choice == CUSTOM_MODEL:
+        model = st.text_input("Custom model name", key="custom_model", placeholder="e.g. Company").strip()
+    else:
+        model = model_choice
     ids_input = st.text_input(
-        "Record ID(s) — optional",
+        "Record IDs (optional)",
         value="",
         placeholder="Leave empty to fetch all",
         key="ids",
         help="Comma-separated record IDs. Not needed for most models.",
     )
     limit = st.number_input(
-        "Page size (limit)", min_value=1, max_value=1000, value=100, step=50, key="limit",
-        help="Records per request. Use 'Next page' in the results to continue.",
+        "Page size", min_value=1, max_value=1000, value=100, step=50, key="limit",
+        help="Records per request (limit). Use 'Next page' in the results to continue.",
     )
-    fetch_clicked = st.button("⚡  Fetch Records", width="stretch", type="primary")
 
 
 # ── Session state ─────────────────────────────────────────────────────────────
@@ -391,57 +387,50 @@ ids_clean = ",".join(i.strip() for i in ids_input.split(",") if i.strip())
 preview_url = build_url(base_url, build_params(model or "…", ids_clean, limit))
 
 # ── Hero ──────────────────────────────────────────────────────────────────────
+ENV_COLORS = {"prod": "var(--danger)", "stg": "var(--c-kw)", "dev": "var(--c-kw)"}
+
+
+def ctx_chip(label, value, color="var(--accent)", warn=False):
+    return (
+        f'<div class="ctx-chip{" warn" if warn else ""}"><span class="ctx-dot" style="background:{color}"></span>'
+        f'<span class="ctx-k">{label}</span><span class="ctx-v">{esc(value)}</span></div>'
+    )
+
+
 st.markdown(f"""
 <div class="hero">
-  <div class="hero-row">
-    <div class="hero-logo">N↗</div>
-    <div>
-      <div class="hero-title">Nango API Explorer</div>
-      <div class="hero-sub">{esc(model or "—")} · {esc(client or "—")} · {esc(provider_key)}</div>
-    </div>
-    <div class="hero-dot"><div class="live-dot"></div>{esc(urlparse(base_url).hostname or base_url)}</div>
+  <div>
+    <div class="hero-title">Nango API Explorer</div>
+    <div class="hero-sub">Fetch and inspect synced records from any model.</div>
   </div>
+  <div class="host-pill"><span class="live-dot"></span>{esc(urlparse(base_url).hostname or base_url)}</div>
+</div>
+<div class="ctx-row">
+  {ctx_chip("Environment", environment, ENV_COLORS.get(environment, "var(--accent)"))}
+  {ctx_chip("Client", client or "not set", warn=not client)}
+  {ctx_chip("Model", model or "not set", warn=not model)}
+  {ctx_chip("Provider", provider_key or "not set", warn=not provider_key)}
+  {ctx_chip("Token", "set" if token else "missing", "var(--ok)" if token else "var(--danger)", warn=not token)}
 </div>
 """, unsafe_allow_html=True)
 
-# ── Two-column layout: config summary (left) | cURL (right) ───────────────────
-col_left, col_right = st.columns([1, 1], gap="medium")
-
-with col_left:
-    cfg_rows = [
-        ("Environment",   f'<span class="model-pill">{esc(environment)}</span>'),
-        ("Client",        esc(client) or "⚠ Not set"),
-        ("Model",         f'<span class="model-pill">{esc(model or "—")}</span>'),
-        ("URL",           esc(preview_url)),
-        ("Provider-Key",  esc(provider_key)),
-        ("Connection-Id", esc(connection_id) or "⚠ Not set"),
-        ("Auth",          "Bearer ••••••" if token else "⚠ No token set"),
-        ("IDs",           esc(ids_clean) or "— (all records)"),
-    ]
-    rows_html = "".join(
-        f'<div class="cfg-row"><div class="cfg-label">{label}</div><div class="cfg-value">{value}</div></div>'
-        for label, value in cfg_rows
+# ── Request bar ───────────────────────────────────────────────────────────────
+url_base, _, url_query = preview_url.partition("?")
+bar_col, send_col = st.columns([6, 1], vertical_alignment="center")
+with bar_col:
+    st.markdown(
+        f'<div class="reqbar"><span class="method">GET</span>'
+        f'<span class="url-text">{esc(url_base)}<span class="q">?{esc(url_query)}</span></span></div>',
+        unsafe_allow_html=True,
     )
-    st.markdown(f"""
-    <div class="panel-card">
-      <div class="panel-label">Endpoint Config</div>
-      {rows_html}
-    </div>
-    """, unsafe_allow_html=True)
+with send_col:
+    fetch_clicked = st.button("Send  ▶", type="primary", width="stretch", key="send")
 
-with col_right:
-    curl_html = build_curl_html(preview_url, token, provider_key, connection_id)
-    st.markdown(f"""
-    <div class="curl-panel">
-      <div class="curl-header">⌨ cURL Command</div>
-      <div class="curl-box">{curl_html}</div>
-      <div class="panel-hint">
-        ↑ Updates live as you edit fields in the sidebar
-      </div>
-    </div>
-    """, unsafe_allow_html=True)
+with st.expander("cURL command"):
+    reveal = st.toggle("Reveal token so the command can be copied and run", key="reveal_token")
+    st.code(build_curl_plain(preview_url, token, provider_key, connection_id, reveal=reveal), language="bash")
 
-st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
 
 # ── Fetch ─────────────────────────────────────────────────────────────────────
 if fetch_clicked:
@@ -501,15 +490,12 @@ if st.session_state.last_response:
         <div class="metric-val" style="font-size:14px">{r['timestamp']}</div>
       </div>
     </div>
-    <div class="url-bar">
-      GET &nbsp;<span class="url-val">{esc(r['url'])}</span>
-    </div>
     """, unsafe_allow_html=True)
 
     bar_filter, bar_next = st.columns([3, 1], vertical_alignment="bottom")
     with bar_filter:
         needle = st.text_input(
-            "🔎 Filter records on this page", key="filter",
+            "Filter records on this page", key="filter",
             placeholder="Type to filter the Table and Cards views…",
         ).strip().lower() if all_records else ""
     with bar_next:
@@ -523,7 +509,7 @@ if st.session_state.last_response:
         if needle and all_records else all_records
     )
 
-    tab_table, tab_beautiful, tab_raw, tab_info = st.tabs(["▦  Table", "✦  Cards", "⬚  Raw JSON", "📋  Response Info"])
+    tab_table, tab_beautiful, tab_raw, tab_info = st.tabs(["Table", "Cards", "Raw JSON", "Response info"])
 
     with tab_table:
         if not ok:
@@ -592,10 +578,15 @@ Status:           {r['status_code']}""", language="yaml")
 else:
     st.markdown("""
     <div class="empty-state">
-      <div class="empty-icon">⬡</div>
-      <div style="font-size:14px">Pick an environment, client and model in the sidebar, then hit
-        <strong>⚡ Fetch Records</strong>
+      <div class="empty-title">Ready when you are</div>
+      <div class="empty-sub">Three quick steps to pull records from Nango.</div>
+      <div class="steps">
+        <div class="step"><div class="step-n">1</div><div class="step-t">Connect</div>
+          <div class="step-d">Choose an environment and client. Connection, provider and token load from your <span class="mono">.env</span>.</div></div>
+        <div class="step"><div class="step-n">2</div><div class="step-t">Pick a model</div>
+          <div class="step-d">Select the model to fetch. Record IDs are optional, so leave them empty to get everything.</div></div>
+        <div class="step"><div class="step-n">3</div><div class="step-t">Send &amp; explore</div>
+          <div class="step-d">Hit Send, then browse as a table, cards or raw JSON. Use Next page for large models.</div></div>
       </div>
-      <div style="font-size:11px;margin-top:8px">Record IDs are optional · credentials load from .env</div>
     </div>
     """, unsafe_allow_html=True)
